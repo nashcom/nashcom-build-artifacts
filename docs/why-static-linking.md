@@ -1,106 +1,69 @@
 # Using libcurl from Domino C-API applications
 
-Copied from [D:\claude\curltest\LIBCURL_FINDINGS.md](../../curltest/LIBCURL_FINDINGS.md)
-— this is the investigation that motivated this whole build pipeline.
+This investigation is what motivated the `nashcom-build-artifacts` build pipeline.
 
 ## Use case
 
-We need libcurl functionality in C-API applications. `nnotes.dll` /
-`libnotes.so` bundles its own private copy of curl internally (OIDC SSO,
-`DominoCurl`, etc.), but it isn't public API, and there's no documented,
-supported way to make outbound HTTP(S) calls from a C-API application
-today. We tested two distinct approaches.
+I need libcurl functionality in Domino C-API applications. `nnotes.dll` / `libnotes.so` includes its own private copy of libcurl.
+But this is not public C-API functionality and there is currently no documented, supported API for making outbound HTTP(S) calls directly from a C-API application.
+I tested two distinct approaches.
 
-## Use case 1: use Domino's own (bundled) libcurl
+## Use case 1: Use Domino's bundled libcurl
 
-- Domino statically links libcurl into nnotes.dll/libnotes.so. Confirmed
-  via export inspection on both platforms - on Linux the symbols are
-  privately versioned (`curl_easy_init@@noteslib_v1.00`). Internal
-  callers include `InitOIDCCurl`/`DeinitOIDCCurl` and a `DominoCurl`
-  class.
-- Calling it directly: explicit dynamic loading by name
-  (`GetProcAddress` / `dlsym`) works. A renaming `.def` import library
-  does not - links fine, fails at runtime ("procedure entry point could
-  not be located").
-- Open question: does sharing `curl_global_init`/`curl_global_cleanup`
-  with Domino's own internal curl usage carry any real risk
-  (ref-counting, concurrent use)? No interference observed in either
-  direction in our testing, but that's empirical, not a guarantee.
+**Not recommended.** This interface is undocumented, has no support commitment, and it only supports HTTP(S).
+It is documented here because I investigated and tested it, not because it is a recommended integration path.
 
-## Use case 2: bring your own, independent libcurl
+Domino statically links libcurl into `nnotes.dll` / `libnotes.so` on both platforms, but accessing those symbols works differently on Windows and Linux.
 
 ### Windows
 
-A separate, dynamically-linked libcurl (own SSL stack bundled in the
-DLL) coexists cleanly with Domino's own curl usage - no conflicts, even
-with `NotesHTTPRequest` interleaved with our own calls, including after
-our own `curl_global_cleanup()`. Only missing piece: an official MSVC
-import library for the bundled DLL (we hand-built one via
-`.def`/`lib.exe`).
+The symbols are privately versioned (`curl_easy_init@@noteslib_v1.00`). Calling them directly works with a self-built import library for the actual exported symbols.
+A renaming `.def` import library does not work: the application links successfully, but loading fails at runtime because the renamed procedure entry point does not exist.
 
 ### Linux
 
-Dynamic linking does **not** give real independence: our own curl and
-Domino's resolved to the *same* function address despite Domino's
-version scripting - an ordinary link-order issue (`-lnotes` ahead of our
-own curl on the command line satisfies the unversioned reference first),
-not a Domino bug. Fails silently, same version string both sides, no
-link/runtime error.
+There is no separate import library. The symbols are resolved directly from `libnotes.so`.
+This is also the important difference for use case 2: a function dynamically linked `curl_easy_*` reference can be satisfied by the symbols already provided by `libnotes.so`.
+That is useful when Domino's bundled curl is intentionally being used, but prevents a normally linked second libcurl from being reliably independent.
 
-**Static linking of both libcurl and OpenSSL is required** to get real
-independence (confirmed via differing addresses once static). Neither is
-packaged on RHEL 9 or RHEL 10 - both have to be built from source, and
-the OpenSSL libcurl is linked against has to match the *deployment*
-machine's ABI, not just the build machine's, or you get a runtime
-symbol-version error.
+## Use case 2: Bring your own independent libcurl
+
+### Windows
+
+A separate dynamically linked libcurl, including its own SSL stack, can coexist cleanly with Domino's bundled curl.
+I verified this by interleaving my own libcurl calls with `NotesHTTPRequest`, including calls after my own `curl_global_cleanup()`.
+No conflicts were observed. The only missing component for my build was an MSVC import library for the selected libcurl DLL, which I generated using `.def` / `lib.exe`.
+
+### Linux
+
+Dynamic linking on Linux does **not** provide the same isolation.
+In my tests, my own libcurl calls and Domino's bundled libcurl resolved to the same function addresses.
+
+Both consequently reported Domino's libcurl version.
+This is an ordinary ELF symbol-resolution/link-order issue, not a Domino defect: with `-lnotes` ahead of another curl library,
+the unversioned `curl_easy_*` references can already be satisfied by `libnotes.so`.
+
+The failure is particularly difficult to detect because there is no linker or runtime error.
+The application runs successfully, but uses a different libcurl implementation than intended.
+
+For normal linker-based integration, the reliable solution is to statically link the application's own libcurl and its SSL implementation into the C-API application.
+I confirmed the resulting isolation by comparing function addresses: once my libcurl and OpenSSL were statically linked, Domino and the application used different implementations.
+
+On Redhat based platforms, the required static libraries are not available through the standard packages I tested, so libcurl and OpenSSL have to be built from source.
+The libraries also have to be built as a matched set against the intended deployment ABI.
+In particular, libcurl must be built against the same OpenSSL artifacts that are subsequently linked into the application.
+Building against incompatible system/runtime ABIs can result in ELF symbol-version errors at runtime.
 
 ## Path forward
 
-1. Ship libcurl headers with the C-API, matching the bundled version -
-   needed for use case 1.
-2. Ship an official Windows import library for the bundled exports -
-   needed for use case 1.
-3. Ship an official Windows libcurl (with its own SSL stack) plus import
-   library for use case 2.
-4. Ship matched static libs for **both** libcurl and OpenSSL for Linux,
-   for use case 2 - they have to be built against each other, and a
-   mismatch is exactly the runtime error we hit ourselves.
-5. Document both use cases explicitly: the Linux link-order requirement
-   for use case 2, and an authoritative answer on the init/cleanup
-   sharing question for use case 1.
+1. **Windows:** Use an official libcurl build with its own SSL stack and the corresponding MSVC import library.
+2. **Linux:** Build and statically link a matched set of libcurl + OpenSSL (+ zlib) for the target RHEL/UBI ABI.
+3. **Linux linking:** Explicitly document and verify link order and the resulting ELF dependencies so that references cannot silently resolve to Domino's bundled libcurl.
 
----
+## Why `nashcom-build-artifacts` exists
 
-**This project (`nashcom-build-artifacts`) is the direct answer to point 4** —
-a reproducible pipeline building matched static curl + openssl (+ zlib)
-against the same UBI9/RHEL9 ABI Domino itself deploys on.
+`nashcom-build-artifacts` is the direct answer to the Linux requirement above.
+It provides a reproducible build pipeline for matched static **libcurl + OpenSSL + zlib** artifacts, built together against the same **UBI 9 / RHEL 9 ABI** used by the target Domino environment.
 
-## CA certificates
-
-Static linking solves the ABI-independence problem, but it doesn't solve CA
-trust — that's a separate gap this project doesn't (and can't) close for you.
-
-Neither curl's nor OpenSSL's **source** ships a CA bundle — that's true
-upstream, and it's just as true of the static libs this pipeline builds. Our
-OpenSSL build configures `--openssldir=/depends/openssl/ssl`, which bakes in
-a default cert path that only exists inside the build container; it's gone
-the moment the libs are copied out to `latest/` and linked into your own
-addin. Concretely: a real TLS connection made through the shipped `.a`
-libraries — or through the `openssl`/`curl` CLI tools built alongside them —
-fails with `Problem with the SSL CA cert (path? access rights?)` unless
-*your own code* handles CA verification explicitly.
-
-There's no single fix this repo could bake in instead, because there's no
-universal trust-store location to bake in: RHEL/UBI9, Debian/Ubuntu, and
-Alpine each keep their system CA bundle in a different place, and Windows
-(the original context for this investigation — see the top of this doc) has
-no system trust store at all. Whatever your C-API addin links against these
-libs needs to do this itself — same pattern `project/testing/test_openssl.cpp`
-and `test_curl.cpp`'s `FindCaBundle()` demonstrate: try a local override file
-first, then a short list of known system paths, and fail predictably (not
-silently) if none match.
-
-A more rigorous, fully closed-loop verification of this — a self-signed CA
-plus `openssl s_server`, with no dependency on any OS's trust store or a live
-internet host — is planned as a separate follow-up test suite, not yet
-built.
+The goal is not merely to provide static libraries.
+It is to provide a **known, reproducible, mutually compatible set of build artifacts** that can be consumed by Domino C-API projects without accidentally depending on Domino's private libcurl implementation or on incompatible libraries from the build host.

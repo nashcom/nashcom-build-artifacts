@@ -139,9 +139,7 @@ Two layers:
   address/URL argument), both resolve their CA trust store via a shared
   `FindCaBundle()` lookup: a local `cacert.pem` first (drop one next to the
   binary to override), then RHEL/UBI9, Debian/Ubuntu, and Alpine's system
-  paths in turn — see the top of either `.cpp` file, or
-  [docs/why-static-linking.md](docs/why-static-linking.md#ca-certificates)
-  for why this can't just be one universal default.
+  paths in turn — see the top of either `.cpp` file for the full list.
 
 ## Incremental builds
 
