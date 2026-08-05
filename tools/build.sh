@@ -19,20 +19,36 @@
 # here. zlib isn't built from source here (apk's zlib-dev/zlib-static
 # covers it, so ZLIB_* from versions.env is unused).
 #
+# Output goes to <ARTIFACTS_DIR>/tools/ -- the same configurable, persistent
+# location build.sh promotes latest/versions into (see build.sh's own header
+# comment), not into this repo checkout. ARTIFACTS_DIR defaults to
+# /local/nashcom-build-artifacts, same as build.sh, and is overridable the
+# same way (env var or --artifacts-dir=PATH).
+#
 # openssl's install (/usr/local inside the container) lives in a
 # persistent named volume, not the container's own ephemeral layer --
 # curl's build needs those .a libs/headers to link against, so if it's
-# ephemeral, skipping a rebuild of openssl (because tools/bin/openssl
-# already exists) would leave curl with nothing to link against in a
-# fresh container. With a persistent volume, openssl only rebuilds if
+# ephemeral, skipping a rebuild of openssl (because <ARTIFACTS_DIR>/tools/
+# openssl already exists) would leave curl with nothing to link against in
+# a fresh container. With a persistent volume, openssl only rebuilds if
 # /usr/local/bin/openssl isn't already there, and curl only rebuilds if
-# tools/bin/curl isn't already there -- e.g. `rm tools/bin/curl` and
-# rerun to redo just curl. Force a full rebuild of openssl too with
-# `docker volume rm nashcom-alpine-static-work`.
+# <ARTIFACTS_DIR>/tools/curl isn't already there -- e.g. `rm
+# <ARTIFACTS_DIR>/tools/curl` and rerun to redo just curl. Force a full
+# rebuild of openssl too with `docker volume rm nashcom-alpine-static-work`.
+#
+# This container runs as root throughout (apk add needs it) -- unlike the
+# UBI9 Dockerfile's fixed non-root build user, there's no separate image
+# build step here to install packages as root and then drop privileges
+# for. To avoid leaving root-owned files under ARTIFACTS_DIR (which would
+# otherwise sit right next to build.sh's user-owned latest/versions/, a
+# "mixed owners" mess), the container chowns its own output to 1000:1000
+# as its last step -- same convention build.sh's ensure_dir_writable_by_
+# container() uses for SOURCES_DIR/STAGING_DIR.
 #
 # Usage:
 #   ./tools/build.sh
 #   CURL_VERSION=8.20.0 OPENSSL_VERSION=4.0.1 ./tools/build.sh
+#   ./tools/build.sh --artifacts-dir=/data/artifacts
 
 set -euo pipefail
 
@@ -40,6 +56,17 @@ cd "$(dirname "${BASH_SOURCE[0]}")"
 
 # shellcheck disable=SC1091
 source ../project/versions.env
+
+ARTIFACTS_DIR="${ARTIFACTS_DIR:-/local/nashcom-build-artifacts}"
+
+for arg in "$@"; do
+  case "${arg}" in
+    --artifacts-dir=*) ARTIFACTS_DIR="${arg#*=}" ;;
+    *) echo "Error: Unknown option: ${arg}" >&2; exit 1 ;;
+  esac
+done
+
+TOOLS_DIR="${ARTIFACTS_DIR}/tools"
 
 IMAGE="alpine:latest"
 CONTAINER_NAME="nashcom-alpine-static-build"
@@ -82,13 +109,41 @@ print_runtime()
   echo
 }
 
-mkdir -p bin
+# ensure_dir_writable_by_container <dir>: same three-way split as build.sh's
+# helper of the same name -- root chowns to 1000:1000, already-1000:1000
+# needs nothing, anyone else falls back to chmod 777 (the only option
+# without sudo). Duplicated rather than shared since build.sh and this
+# script have always kept their own independent copies of delim/ts/header
+# etc. too -- no shared host-side lib between them.
+ensure_dir_writable_by_container()
+{
+  local dir="$1"
+  local my_uid
+  my_uid="$(id -u)"
+
+  mkdir -p "${dir}"
+
+  if [ "${my_uid}" = "0" ]; then
+    chown 1000:1000 "${dir}"
+  elif [ "${my_uid}" = "1000" ]; then
+    : # already the right owner
+  else
+    chmod 777 "${dir}"
+  fi
+}
+
+# Fix ARTIFACTS_DIR itself too, not just TOOLS_DIR underneath it -- if this
+# script runs before build.sh ever has on a fresh machine, mkdir -p below
+# would otherwise silently create the parent as a root-owned side effect
+# that never gets chowned (the chown only touches the leaf directory).
+ensure_dir_writable_by_container "${ARTIFACTS_DIR}"
+ensure_dir_writable_by_container "${TOOLS_DIR}"
 docker volume create "${VOLUME_NAME}" >/dev/null
 
 header "Building curl ${CURL_VERSION} + openssl ${OPENSSL_VERSION}, statically, on alpine"
 docker rm -f "${CONTAINER_NAME}" >/dev/null 2>&1 || true
 docker run --rm --name "${CONTAINER_NAME}" \
-  -v "$(pwd)/bin:/out" \
+  -v "${TOOLS_DIR}:/out" \
   -v "${VOLUME_NAME}:/usr/local" \
   --tmpfs "/tmp:uid=0,gid=0,exec,mode=1777" \
   -e CURL_VERSION="${CURL_VERSION}" \
@@ -170,10 +225,11 @@ else
 fi
 cp /usr/local/bin/openssl /out/openssl
 strip /out/openssl
+chown 1000:1000 /out/openssl
 
 if [ -f /out/curl ]; then
-  header "Curl already built (tools/bin/curl exists), skipping"
-  echo "(rm tools/bin/curl to force a rebuild)"
+  header "Curl already built (ARTIFACTS_DIR/tools/curl exists), skipping"
+  echo "(rm it from ARTIFACTS_DIR/tools/ to force a rebuild)"
 else
   header "Building curl ${CURL_VERSION}"
   curl -fLo /tmp/curl.tar.xz "${CURL_URL}"
@@ -210,6 +266,7 @@ else
   cp src/curl /out/curl
 fi
 strip /out/curl
+chown 1000:1000 /out/curl
 }
 
 if main; then
@@ -228,14 +285,14 @@ echo
 sleep infinity
 '
 
-header "Done: tools/bin/openssl, tools/bin/curl"
-file bin/openssl bin/curl 2>/dev/null || true
+header "Done: ${TOOLS_DIR}/openssl, ${TOOLS_DIR}/curl"
+file "${TOOLS_DIR}/openssl" "${TOOLS_DIR}/curl" 2>/dev/null || true
 
 echo
 if [ "$(uname -s)" = "Linux" ]; then
-  chmod +x bin/openssl bin/curl 2>/dev/null || true
-  bin/openssl version || echo "Warning: bin/openssl version failed"
-  bin/curl --version | head -n1 || echo "Warning: bin/curl --version failed"
+  chmod +x "${TOOLS_DIR}/openssl" "${TOOLS_DIR}/curl" 2>/dev/null || true
+  "${TOOLS_DIR}/openssl" version || echo "Warning: ${TOOLS_DIR}/openssl version failed"
+  "${TOOLS_DIR}/curl" --version | head -n1 || echo "Warning: ${TOOLS_DIR}/curl --version failed"
 else
   echo "Skipping version check (host is not Linux; run them under WSL/Linux instead)"
 fi

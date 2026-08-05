@@ -3,5 +3,3 @@
 /build/
 /versions/
 /project/sources/
-/tools/bin/*
-!/tools/bin/README.md

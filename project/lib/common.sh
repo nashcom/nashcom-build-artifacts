@@ -32,12 +32,13 @@ die()
 }
 
 # fetch <url> <tarball-name> <extracted-dir-name> [expected-sha256]
-# Downloads into /project/sources (cached across reruns) and extracts into
-# /build/<extracted-dir-name>, skipping work already done. /build is
-# host-mounted (./build) and persists after the container exits -- unlike a
-# container-local /tmp, so a failed configure/make can actually be
-# inspected afterward (config.log, object files, etc.), same spirit as
-# ./latest for final artifacts.
+# Downloads into /sources (host-mounted from SOURCES_DIR, cached across
+# reruns) and extracts into /build/<extracted-dir-name>, skipping work
+# already done. /build is a container-local tmpfs (see build.sh's own
+# header comment for why) -- gone when the container exits, so a failed
+# configure/make's config.log doesn't survive; /sources and /depends
+# (STAGING_DIR, where the final .a/.so/headers land) are the two things
+# that do persist.
 #
 # If expected-sha256 is given, the tarball is checksummed every time
 # (fresh download or cached) and a mismatch aborts the build before
@@ -52,27 +53,27 @@ fetch()
   local extracted_dir="$3"
   local expected_sha256="${4:-}"
 
-  mkdir -p /project/sources /build
+  mkdir -p /sources /build
   cd /build || die "Cannot cd to /build"
 
-  if [ ! -f "/project/sources/${tarball}" ]; then
+  if [ ! -f "/sources/${tarball}" ]; then
     echo
     log "Downloading ${tarball}"
-    curl -fLo "/project/sources/${tarball}" "${url}" || die "Download failed: ${url}"
+    curl -fLo "/sources/${tarball}" "${url}" || die "Download failed: ${url}"
     echo
   else
-    log "Using cached /project/sources/${tarball}"
+    log "Using cached /sources/${tarball}"
   fi
 
   if [ -n "${expected_sha256}" ]; then
     local actual_sha256
-    actual_sha256="$(sha256sum "/project/sources/${tarball}" | cut -d' ' -f1)"
+    actual_sha256="$(sha256sum "/sources/${tarball}" | cut -d' ' -f1)"
     if [ "${actual_sha256}" = "${expected_sha256}" ]; then
       log "Checksum OK for ${tarball}"
     else
       die "Checksum mismatch for ${tarball}: expected ${expected_sha256}," \
         "got ${actual_sha256} -- possibly corrupted cache" \
-        "(rm /project/sources/${tarball} and retry) or a tampered/wrong download"
+        "(rm /sources/${tarball} and retry) or a tampered/wrong download"
     fi
   else
     log "No checksum configured for ${tarball} in versions.env -- skipping verification"
@@ -81,7 +82,7 @@ fetch()
 
   if [ ! -d "${extracted_dir}" ]; then
     log "Extracting ${tarball}"
-    tar xf "/project/sources/${tarball}" || die "Extract failed: ${tarball}"
+    tar xf "/sources/${tarball}" || die "Extract failed: ${tarball}"
   fi
 
   if [ ! -d "${extracted_dir}" ]; then

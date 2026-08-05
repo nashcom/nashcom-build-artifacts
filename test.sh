@@ -8,10 +8,10 @@
 # iteration on project/testing/*.cpp itself.
 #
 # Usage:
-#   ./test.sh                 # compile project/testing/*.cpp against ./latest and run each binary
-#   ./test.sh staging         # same, but against ./staging (used by build.sh pre-promotion)
-#   ./test.sh --no-run        # compile only, don't run (used by build.sh, which leaves
-#                                running them to testing/validate-artifacts.sh)
+#   ./test.sh                    # compile project/testing/*.cpp against ARTIFACTS_DIR/latest and run each binary
+#   ./test.sh /path/to/staging   # same, but against an arbitrary directory (e.g. what build.sh passes pre-promotion)
+#   ./test.sh --no-run           # compile only, don't run (used by build.sh, which leaves
+#                                   running them to testing/validate-artifacts.sh)
 
 set -euo pipefail
 
@@ -19,8 +19,9 @@ cd "$(dirname "${BASH_SOURCE[0]}")"
 
 IMAGE="nashcom-build-artifacts:latest"
 CONTAINER_NAME="nashcom-build-artifacts-tests"
+ARTIFACTS_DIR="${ARTIFACTS_DIR:-/local/nashcom-build-artifacts}"
 RUN=1
-TARGET="latest"
+TARGET="${ARTIFACTS_DIR}/latest"
 
 delim() { echo "--------------------------------------------------------------------------------"; }
 
@@ -64,11 +65,17 @@ if [ ! -f "${TARGET}/BUILD_INFO.txt" ]; then
   exit 1
 fi
 
+# TARGET can arrive relative (manual use, e.g. "./test.sh some/dir") or
+# absolute (build.sh always passes STAGING_DIR as absolute) -- resolve to
+# absolute either way, since it's handed straight to "docker run -v" below
+# with no $(pwd) prefix.
+TARGET="$(realpath "${TARGET}")"
+
 header "Compiling test programs (project/testing/*.cpp -> ${TARGET}/bin)"
 docker rm -f "${CONTAINER_NAME}" >/dev/null 2>&1 || true
 docker run --rm --name "${CONTAINER_NAME}" \
   -v "$(pwd)/project:/project" \
-  -v "$(pwd)/${TARGET}:/depends" \
+  -v "${TARGET}:/depends" \
   --tmpfs "/tmp:uid=1000,gid=1000,exec,mode=1777" \
   "${IMAGE}" /project/lib/build-tests.sh
 

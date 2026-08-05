@@ -1,9 +1,9 @@
 #!/bin/bash
 # Reports the latest published upstream release for curl, openssl, and zlib
 # next to what's currently pinned in project/versions.env, and the SHA-256
-# of each pinned tarball (downloaded into project/sources/ if not already
-# cached -- same cache fetch() uses, so this doesn't duplicate downloads
-# build.sh would also need). Purely informational: does not touch
+# of each pinned tarball (downloaded into SOURCES_DIR if not already
+# cached -- same cache fetch() uses via /sources, so this doesn't duplicate
+# downloads build.sh would also need). Purely informational: does not touch
 # versions.env, does not build anything. Bump project/versions.env by hand
 # (or override per-build with CURL_VERSION=... ./build.sh) to move to a
 # newer version.
@@ -25,6 +25,8 @@
 set -euo pipefail
 
 cd "$(dirname "${BASH_SOURCE[0]}")"
+
+SOURCES_DIR="${SOURCES_DIR:-/tmp/nashcom-build-artifacts/sources}"
 
 # shellcheck disable=SC1091
 source project/versions.env
@@ -54,6 +56,30 @@ log_error()
   echo >&2
 }
 
+# ensure_dir_writable_by_container <dir>: same three-way split as build.sh's
+# helper of the same name -- root chowns to 1000:1000, already-1000:1000
+# needs nothing, anyone else falls back to chmod 777 (the only option
+# without sudo). This script shares SOURCES_DIR with build.sh and could be
+# the first thing that ever creates it on a fresh machine.
+ensure_dir_writable_by_container()
+{
+  local dir="$1"
+  local my_uid
+  my_uid="$(id -u)"
+
+  mkdir -p "${dir}"
+
+  if [ "${my_uid}" = "0" ]; then
+    chown 1000:1000 "${dir}"
+  elif [ "${my_uid}" = "1000" ]; then
+    : # already the right owner
+  else
+    chmod 777 "${dir}"
+  fi
+}
+
+ensure_dir_writable_by_container "${SOURCES_DIR}"
+
 latest_tag()
 {
   local repo="$1"
@@ -77,20 +103,20 @@ printf '%-8s pinned=%-12s latest=%s\n' curl    "${CURL_VERSION}"    "${CURL_LATE
 printf '%-8s pinned=%-12s latest=%s\n' openssl "${OPENSSL_VERSION}" "${OPENSSL_LATEST:-unknown}"
 printf '%-8s pinned=%-12s latest=%s\n' zlib    "${ZLIB_VERSION}"    "${ZLIB_LATEST:-unknown}"
 
-# hash_of <url> <tarball>: reuses project/sources/ as a cache, same as
-# project/lib/common.sh's fetch() -- downloading here doesn't cost a
-# second download later when build.sh actually runs.
+# hash_of <url> <tarball>: reuses SOURCES_DIR as a cache, same as
+# project/lib/common.sh's fetch() (there, mounted at /sources) --
+# downloading here doesn't cost a second download later when build.sh
+# actually runs.
 hash_of()
 {
   local url="$1" tarball="$2"
-  mkdir -p project/sources
-  if [ ! -f "project/sources/${tarball}" ]; then
-    if ! curl -fsSL -o "project/sources/${tarball}" "${url}"; then
+  if [ ! -f "${SOURCES_DIR}/${tarball}" ]; then
+    if ! curl -fsSL -o "${SOURCES_DIR}/${tarball}" "${url}"; then
       log_error "Download failed: ${url}"
       return 1
     fi
   fi
-  sha256sum "project/sources/${tarball}" | cut -d' ' -f1
+  sha256sum "${SOURCES_DIR}/${tarball}" | cut -d' ' -f1
 }
 
 header "SHA-256 of pinned tarballs (NOT cross-checked -- see the top of this script)"

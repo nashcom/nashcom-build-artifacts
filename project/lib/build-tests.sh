@@ -3,8 +3,8 @@
 # libs just built into /depends, statically linked (matches the compile
 # line documented in test_openssl.cpp's own header comment, adapted from
 # /opt/<lib> to /depends/<lib>). Binaries land in /depends/bin, so they end
-# up in ./latest/bin on the host and travel with every versions/<combo>/
-# archive too.
+# up in <ARTIFACTS_DIR>/latest/bin on the host and travel with every
+# <ARTIFACTS_DIR>/versions/<combo>/ archive too.
 
 set -euo pipefail
 source /project/lib/common.sh
