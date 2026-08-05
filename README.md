@@ -84,21 +84,21 @@ container never touches:
 
 ```
 nashcom-build-artifacts/
-|-- Dockerfile                  UBI9 + build toolchain (dnf install)
-|-- build.sh                    host wrapper: build image, build into STAGING_DIR, validate, promote to ARTIFACTS_DIR/latest
-|-- test.sh                     standalone: compile+run project/testing/*.cpp against any target dir (default ARTIFACTS_DIR/latest)
-|-- check-versions.sh           reports latest upstream curl/openssl/zlib releases vs. what's pinned (informational only)
-|-- docs/
-|   `-- why-static-linking.md   the investigation that motivated this whole pipeline
-|-- project/                    mounted at /project -- build/test scripts and sources, no artifacts
-|   |-- versions.env              pinned default CURL_VERSION / OPENSSL_VERSION / ZLIB_VERSION
-|   |-- build.sh                  in-container orchestrator: zlib -> openssl -> curl, writes BUILD_INFO.txt
-|   |-- lib/                      build-{zlib,openssl,curl}.sh, common.sh, build-tests.sh
-|   `-- testing/                  test program sources (e.g. test_openssl.cpp)
-|-- testing/
-|   `-- validate-artifacts.sh   host-side: checks .a/.so files + headers, runs CLI tools + bin/* test binaries
-`-- tools/                      standalone Alpine/musl pipeline -- static openssl/curl CLI binaries, not part of the UBI9 pipeline
-    `-- build.sh                 builds <ARTIFACTS_DIR>/tools/{openssl,curl} from source on alpine:latest
+├── Dockerfile                  UBI9 + build toolchain (dnf install)
+├── build.sh                    host wrapper: build image, build into STAGING_DIR, validate, promote to ARTIFACTS_DIR/latest
+├── test.sh                     standalone: compile+run project/testing/*.cpp against any target dir (default ARTIFACTS_DIR/latest)
+├── check-versions.sh           reports latest upstream curl/openssl/zlib releases vs. what's pinned (informational only)
+├── docs/
+│   └── why-static-linking.md   the investigation that motivated this whole pipeline
+├── project/                    mounted at /project -- build/test scripts and sources, no artifacts
+│   ├── versions.env              pinned default CURL_VERSION / OPENSSL_VERSION / ZLIB_VERSION
+│   ├── build.sh                  in-container orchestrator: zlib -> openssl -> curl, writes BUILD_INFO.txt
+│   ├── lib/                      build-{zlib,openssl,curl}.sh, common.sh, build-tests.sh
+│   └── testing/                  test program sources (e.g. test_openssl.cpp)
+├── testing/
+│   └── validate-artifacts.sh   host-side: checks .a/.so files + headers, runs CLI tools + bin/* test binaries
+└── tools/                      standalone Alpine/musl pipeline -- static openssl/curl CLI binaries, not part of the UBI9 pipeline
+    └── build.sh                 builds <ARTIFACTS_DIR>/tools/{openssl,curl} from source on alpine:latest
 ```
 
 Not part of this checkout — see [Quickstart](#quickstart) for the three
@@ -108,11 +108,11 @@ configurable locations:
 <SOURCES_DIR>/                downloaded tarballs, cached across runs (default /tmp/nashcom-build-artifacts/sources)
 <STAGING_DIR>/                mounted at /depends during a build -- untested output, not yet promoted (default /tmp/nashcom-build-artifacts/staging)
 <ARTIFACTS_DIR>/               (default /local/nashcom-build-artifacts)
-|-- latest/                    the promoted, tested build -- always the most recent one that passed
-|   `-- bin/, openssl/, curl/, zlib/, BUILD_INFO.txt, build.log, test.log
-|-- versions/                  archive of every build that used to be latest/, keyed by version combo
-|   `-- curl-8.21.0_openssl-4.0.1_zlib-1.3.2/   same layout as latest/
-`-- tools/                     tools/build.sh's output: static-pie linked, stripped openssl and curl binaries
+├── latest/                    the promoted, tested build -- always the most recent one that passed
+│   └── bin/, openssl/, curl/, zlib/, BUILD_INFO.txt, build.log, test.log
+├── versions/                  archive of every build that used to be latest/, keyed by version combo
+│   └── curl-8.21.0_openssl-4.0.1_zlib-1.3.2/   same layout as latest/
+└── tools/                     tools/build.sh's output: static-pie linked, stripped openssl and curl binaries
 ```
 
 ## Testing
