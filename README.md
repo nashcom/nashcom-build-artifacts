@@ -1,7 +1,7 @@
 # nashcom-build-artifacts
 
 Builds static + shared **openssl**, **libcurl**, and **zlib** in a
-`registry.access.redhat.com/ubi9` container — for Domino C-API addins that
+`registry.access.redhat.com/ubi9` container - for Domino C-API addins that
 need an independent, correctly-linked HTTPS client. Dynamically linking
 your own libcurl on Linux silently resolves to Domino's own bundled copy
 instead of yours; see [docs/why-static-linking.md](docs/why-static-linking.md)
@@ -14,8 +14,8 @@ for the full story.
 ```
 
 Builds curl/openssl/zlib into a staging directory, compiles and runs the
-test programs against it, validates the result, and — only if all of that
-passes — promotes it to `latest/`. A failed build or test never touches
+test programs against it, validates the result, and - only if all of that
+passes - promotes it to `latest/`. A failed build or test never touches
 `latest/`; it's always the most recent build that actually passed.
 
 Nothing lives inside this checkout by default. Three locations, each
@@ -27,7 +27,7 @@ independently overridable (CLI flag wins over env var wins over default):
 | in-progress build output | `STAGING_DIR` | `--staging-dir=PATH` | `/tmp/nashcom-build-artifacts/staging` |
 | promoted `latest/`+`versions/` | `ARTIFACTS_DIR` | `--artifacts-dir=PATH` | `/local/nashcom-build-artifacts` |
 
-The first two default under `/tmp` deliberately — both fully regenerate
+The first two default under `/tmp` deliberately - both fully regenerate
 (sources re-download, staging rebuilds), so it's fine if `/tmp` gets cleaned
 up between runs. `ARTIFACTS_DIR` is the one thing meant to persist, hence
 the separate, non-`/tmp` default.
@@ -46,14 +46,14 @@ and the full build/test logs. `<ARTIFACTS_DIR>/versions/` keeps one archived
 snapshot per version combo that used to be `latest/`.
 
 The container's build user is a fixed UID/GID (`1000:1000`), not matched to
-whoever runs the script — `SOURCES_DIR`/`STAGING_DIR` are host bind mounts
+whoever runs the script - `SOURCES_DIR`/`STAGING_DIR` are host bind mounts
 the container writes into directly, so `build.sh` reconciles the two itself:
 running as root, it `chown`s them to `1000:1000`; running as `1000:1000`
 already, nothing to do; any other user, it falls back to `chmod 777` (the
 only option available without `sudo`). One thing this can't fix: if the
 checkout itself was cloned as `root`, a non-root user won't be able to write
 inside `project/` at all until you `sudo chown -R $(id -u):$(id -g) .` once
-— clone as whichever user will actually run `./build.sh` and this never
+- clone as whichever user will actually run `./build.sh` and this never
 comes up.
 
 ## How it works
@@ -68,17 +68,17 @@ container never touches:
 | `STAGING_DIR` (default `/tmp/...`) | `/depends` | in-progress build output |
 | `ARTIFACTS_DIR` (default `/local/...`) | *(never mounted)* | host-only `latest/`, `versions/` |
 
-1. **Build** (ubi9 container) — `build-zlib.sh` -> `build-openssl.sh` ->
+1. **Build** (ubi9 container) - `build-zlib.sh` -> `build-openssl.sh` ->
    `build-curl.sh`, writing into `STAGING_DIR` (`/depends`); downloads cached
    in `SOURCES_DIR` (`/sources`). `/build`, where sources actually get
    extracted and compiled, is container-local only, never host-mounted.
-2. **Test-compile** (ubi9 container) — `build-tests.sh`, also writing into
+2. **Test-compile** (ubi9 container) - `build-tests.sh`, also writing into
    `STAGING_DIR`.
-3. **Test + promote** (host) — `test.sh` + `validate-artifacts.sh` run
+3. **Test + promote** (host) - `test.sh` + `validate-artifacts.sh` run
    against `STAGING_DIR`:
-   - **pass** — archive the current `latest/` (under its own combo name)
+   - **pass** - archive the current `latest/` (under its own combo name)
      into `versions/`, then promote staging to become the new `latest/`
-   - **fail** — abort; staging is left as-is for inspection
+   - **fail** - abort; staging is left as-is for inspection
 
 ## Layout
 
@@ -101,7 +101,7 @@ nashcom-build-artifacts/
     └── build.sh                 builds <ARTIFACTS_DIR>/tools/{openssl,curl} from source on alpine:latest
 ```
 
-Not part of this checkout — see [Quickstart](#quickstart) for the three
+Not part of this checkout - see [Quickstart](#quickstart) for the three
 configurable locations:
 
 ```
@@ -119,18 +119,18 @@ configurable locations:
 
 Two layers:
 
-- **`testing/validate-artifacts.sh`** — host-side, checks the expected
+- **`testing/validate-artifacts.sh`** - host-side, checks the expected
   `.a`/`.so` files and headers exist, runs the `openssl`/`curl` CLI tools,
   and runs every binary under `bin/`.
-- **`project/testing/*.cpp`** — actual test programs, compiled by
+- **`project/testing/*.cpp`** - actual test programs, compiled by
   `project/lib/build-tests.sh` into `bin/`, statically linked so they run
   on any Linux host with no container needed. Both link `-static`, a step
-  further than the CLI tools — expect `dlopen`-based OpenSSL providers
+  further than the CLI tools - expect `dlopen`-based OpenSSL providers
   (`legacy`/`fips`) to report `FAILED` there even on a correct build;
   that's an inherent static-linking limitation, not a bug.
-  - `test_openssl.cpp` — OpenSSL static-link smoke test: TLS connect, cert
+  - `test_openssl.cpp` - OpenSSL static-link smoke test: TLS connect, cert
     dump, provider load check.
-  - `test_curl.cpp` — libcurl static-link smoke test (the CLI tool check
+  - `test_curl.cpp` - libcurl static-link smoke test (the CLI tool check
     above only proves the *dynamically*-linked `curl` binary works; this
     proves `libcurl.a` itself links and runs): prints `curl_version_info()`
     and, with a URL, does a real HTTPS GET.
@@ -139,7 +139,7 @@ Two layers:
   address/URL argument), both resolve their CA trust store via a shared
   `FindCaBundle()` lookup: a local `cacert.pem` first (drop one next to the
   binary to override), then RHEL/UBI9, Debian/Ubuntu, and Alpine's system
-  paths in turn — see the top of either `.cpp` file for the full list.
+  paths in turn - see the top of either `.cpp` file for the full list.
 
 ## Incremental builds
 
@@ -147,7 +147,7 @@ Two layers:
 the exact version combo requested (and still validates), the whole run is a
 no-op. Otherwise, each `project/lib/build-*.sh` skips reconfigure/make/install
 if `<STAGING_DIR>` already has that exact version built (a `.built-version`
-marker next to its output) — handy for iterating on just one library.
+marker next to its output) - handy for iterating on just one library.
 `FORCE_REBUILD=1` ignores all of that; `--clean` wipes `<STAGING_DIR>` first.
 
 curl's marker also folds in the openssl/zlib versions it linked against,
@@ -159,19 +159,19 @@ so bumping either dependency forces a curl rebuild too.
 `fetch()` verifies every download (fresh or cached) against it and aborts
 on a mismatch; if empty, it just logs a warning. Get the real value from
 the project's own download page when you pin a version (URLs are in
-`versions.env`'s comments) — `./check-versions.sh` can compute the hash of
+`versions.env`'s comments) - `./check-versions.sh` can compute the hash of
 what it downloads for convenience, but that's not the same as verifying
 against the project's published checksum; cross-check it at least once.
 
 ## Standalone static CLI binaries (tools/)
 
 The main pipeline above builds `.a`/`.so` **libraries** matched to Domino's
-glibc/UBI9 ABI, for linking into C-API addins — it does not produce a
+glibc/UBI9 ABI, for linking into C-API addins - it does not produce a
 portable static `openssl`/`curl` **binary** (glibc fights that; see
 "Deviations" below). `tools/build.sh` is a separate, simpler pipeline that
 does exactly that instead: it builds curl + openssl from source on
 `alpine:latest` (musl libc), producing genuinely static, standalone CLI
-binaries with no dual static+shared/staging/validate/promote machinery —
+binaries with no dual static+shared/staging/validate/promote machinery -
 just two binaries to look at.
 
 ```bash
@@ -200,13 +200,13 @@ tools/build.sh              builds <ARTIFACTS_DIR>/tools/{openssl,curl} from sou
   zlib but never pointed curl's configure at it).
 - Each library builds **both** static (`.a`) and shared (`.so`) in one
   pass. The `openssl`/`curl` CLI binaries link dynamically as a result
-  (each project's default once shared is enabled) — that's out of scope
+  (each project's default once shared is enabled) - that's out of scope
   here, not a bug to fix. This pipeline's job is the `.a`/`.so`
   **libraries**, matched to Domino's own glibc/UBI9 ABI for linking into
   C-API addins; a genuinely static, portable `openssl`/`curl` **binary**
-  is a different problem (glibc fights clean static linking — see the
+  is a different problem (glibc fights clean static linking - see the
   `dlopen`/`getaddrinfo`/NSS warnings on `test_openssl.cpp`'s own link) and
-  belongs in a separate, Alpine/musl-based pipeline — see
+  belongs in a separate, Alpine/musl-based pipeline - see
   [Standalone static CLI binaries (tools/)](#standalone-static-cli-binaries-tools)
   above.
 

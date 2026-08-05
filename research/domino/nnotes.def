@@ -1,0 +1,13 @@
+LIBRARY nnotes.dll
+
+EXPORTS
+    NGINX_CERT_RUNTIME_DIRcurl_easy_cleanup   = curl_easy_cleanup
+    NGINX_CERT_RUNTIME_DIRcurl_easy_init      = curl_easy_init
+    NGINX_CERT_RUNTIME_DIRcurl_easy_perform   = curl_easy_perform
+    NGINX_CERT_RUNTIME_DIRcurl_easy_setopt    = curl_easy_setopt
+    NGINX_CERT_RUNTIME_DIRcurl_easy_strerror  = curl_easy_strerror
+    NGINX_CERT_RUNTIME_DIRcurl_global_cleanup = curl_global_cleanup
+    NGINX_CERT_RUNTIME_DIRcurl_global_init    = curl_global_init
+    NGINX_CERT_RUNTIME_DIRcurl_slist_append   = curl_slist_append
+    NGINX_CERT_RUNTIME_DIRcurl_slist_free_all = curl_slist_free_all
+    NGINX_CERT_RUNTIME_DIRcurl_version        = curl_version
