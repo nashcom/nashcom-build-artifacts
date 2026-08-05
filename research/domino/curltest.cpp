@@ -1,15 +1,16 @@
-/* curltest.cpp - Minimal Domino server add-in that links against the
-   official, standalone libcurl SDK (N:\curl on Windows, system libcurl on
-   Linux) instead of the copy bundled inside nnotes.dll/libnotes.so.
+/* curltest.cpp - Minimal Domino server add-in that links against a
+   separately-deployed, standalone libcurl SDK (see mswin64.mak's
+   CURL_SDK_DIR on Windows, CURL_SRC_DIR/OPENSSL_SRC_DIR/ZLIB_SRC_DIR in
+   the Linux makefile) instead of the copy bundled inside
+   nnotes.dll/libnotes.so.
 
-   Purpose: domfwd (D:\claude\domfwd) currently links against nnotes.dll's
-   own internal curl exports, which share global state (curl_global_init/
-   curl_global_cleanup) with Domino's own internal curl usage (confirmed via
-   InitOIDCCurl/DeinitOIDCCurl and the DominoCurl class exported from
-   libnotes.so). This test checks whether using a fully separate, own
-   libcurl instance instead works cleanly as a Domino servertask, or causes
-   conflicts (e.g. symbol collisions, load failures, crashes) by having two
-   independent curl/OpenSSL (here: LibreSSL) stacks in the same process.
+   Purpose: Domino's own internal curl usage shares global state
+   (curl_global_init/curl_global_cleanup) with anything else in the same
+   process that also links a copy of curl. This test checks whether using
+   a fully separate, own libcurl instance instead works cleanly as a
+   Domino servertask, or causes conflicts (e.g. symbol collisions, load
+   failures, crashes) by having two independent curl/OpenSSL (here:
+   LibreSSL) stacks in the same process.
 
    init/version/cleanup and a standalone HTTPS GET already confirmed clean.
    This adds triggering curltest.nsf's "curltest" agent (a LotusScript
@@ -56,6 +57,7 @@
    linking technique instead: GetModuleHandle (nnotes.dll is already
    loaded, no need for LoadLibrary) + GetProcAddress by real name, called
    through our own function-pointer names. */
+
 typedef char *              (LNPUBLIC  *PFN_NOTES_CURL_VERSION)        (void);
 typedef CURLcode            (LNPUBLIC  *PFN_NOTES_CURL_GLOBAL_INIT)    (long flags);
 typedef void                (LNPUBLIC  *PFN_NOTES_CURL_GLOBAL_CLEANUP) (void);
@@ -63,9 +65,9 @@ typedef CURL *              (LNPUBLIC  *PFN_NOTES_CURL_EASY_INIT)      (void);
 typedef CURLcode            (LNVARARGS *PFN_NOTES_CURL_EASY_SETOPT)    (CURL *curl, CURLoption option, ...);
 typedef CURLcode            (LNPUBLIC  *PFN_NOTES_CURL_EASY_PERFORM)   (CURL *curl);
 typedef void                (LNPUBLIC  *PFN_NOTES_CURL_EASY_CLEANUP)   (CURL *curl);
-typedef const char *        (LNPUBLIC  *PFN_NOTES_CURL_EASY_STRERROR) (CURLcode error);
+typedef const char *        (LNPUBLIC  *PFN_NOTES_CURL_EASY_STRERROR)  (CURLcode error);
 typedef struct curl_slist * (LNPUBLIC  *PFN_NOTES_CURL_SLIST_APPEND)   (struct curl_slist *list, const char *data);
-typedef void                (LNPUBLIC  *PFN_NOTES_CURL_SLIST_FREE_ALL)(struct curl_slist *list);
+typedef void                (LNPUBLIC  *PFN_NOTES_CURL_SLIST_FREE_ALL) (struct curl_slist *list);
 
 PFN_NOTES_CURL_VERSION         g_pfnNotesCurlVersion        = NULL;
 PFN_NOTES_CURL_GLOBAL_INIT     g_pfnNotesCurlGlobalInit     = NULL;
@@ -139,6 +141,7 @@ void BuildCaCertPath (size_t cbPath, char *retszPath)
 /* nnotes.dll is already loaded (notes.lib requires it for every standard
    C-API call we make), so GetModuleHandle is enough - no need to
    LoadLibrary it ourselves. Returns FALSE if any function is missing. */
+
 BOOL LoadNotesCurlFunctions (void)
 {
     HMODULE hMod = GetModuleHandle ("nnotes.dll");
@@ -187,6 +190,7 @@ BOOL LoadNotesCurlFunctions (void)
    than it did on Windows: our own curl is now statically linked directly
    into this binary (see makefile), so a global-scope lookup could resolve
    to our own symbol instead of libnotes.so's. */
+
 BOOL LoadNotesCurlFunctions (void)
 {
     void *hMod = dlopen ("libnotes.so", RTLD_LAZY | RTLD_NOLOAD);
@@ -227,6 +231,7 @@ BOOL LoadNotesCurlFunctions (void)
 /* One complete GET via our own, separate libcurl - init, perform, log,
    cleanup. Called twice (before/after RunDominoAgent) to see whether
    Domino's own internal curl activity in between disturbs ours. */
+
 void DoCurlGet (const char *pszLabel, const char *pszUrl, const char *pszCaCertPath)
 {
     CURL              *pCurl    = NULL;
@@ -277,6 +282,7 @@ void DoCurlGet (const char *pszLabel, const char *pszUrl, const char *pszCaCertP
    g_pfnNotesCurl* function pointers above) instead of the standalone
    libcurl-x64.dll - exercises that instance's actual request path
    directly, not just its version string. */
+
 void DoNotesCurlGet (const char *pszLabel, const char *pszUrl, const char *pszCaCertPath)
 {
     CURL              *pCurl    = NULL;
@@ -319,8 +325,9 @@ void DoNotesCurlGet (const char *pszLabel, const char *pszUrl, const char *pszCa
 
 /* Triggers curltest.nsf's "curltest" LotusScript agent (a NotesHTTPRequest
    call) via the documented C-API AgentRun path - this runs Domino's own
-   internal curl code (DominoCurl/InitOIDCCurl-adjacent, see file header),
-   in this same process, in between our own two DoCurlGet() calls. */
+   internal curl code (see file header), in this same process, in between
+   our own two DoCurlGet() calls. */
+
 void RunDominoAgent (const char *pszDbPath, const char *pszAgentName)
 {
     STATUS    error       = NOERROR;
@@ -417,6 +424,7 @@ STATUS LNPUBLIC AddInMain (HMODULE hModule, int argc, char far *argv[])
        OpenSSL_version() already returns self-labeled strings for the last
        four ("built on: ...", "platform: ...", etc.) - no extra label added
        here to avoid saying it twice. */
+
     AddInLogMessageText ("%s: OpenSSL compile Version: %s", 0, g_szTask, OPENSSL_VERSION_TEXT);
     AddInLogMessageText ("%s: OpenSSL runtime Version: %s", 0, g_szTask, OpenSSL_version (OPENSSL_VERSION));
     AddInLogMessageText ("%s: OpenSSL %s", 0, g_szTask, OpenSSL_version (OPENSSL_BUILT_ON));
@@ -460,8 +468,8 @@ STATUS LNPUBLIC AddInMain (HMODULE hModule, int argc, char far *argv[])
        between the two separate DLLs) break Domino's own curl usage run
        afterward? Complements the before/after test above, which checked
        the other direction. */
-    RunDominoAgent (CURLTEST_AGENT_DB, CURLTEST_AGENT_NAME);
 
+    RunDominoAgent (CURLTEST_AGENT_DB, CURLTEST_AGENT_NAME);
     AddInLogMessageText ("%s: Terminating", 0, g_szTask);
 
     return NOERROR;
