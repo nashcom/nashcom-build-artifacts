@@ -58,67 +58,61 @@ comes up.
 
 ## How it works
 
-```
-host                                          container
-  project/ (this checkout)                     /project    (build/test scripts + sources)
-  SOURCES_DIR   (default /tmp/...)              /sources    (downloaded tarballs, cached)
-  STAGING_DIR   (default /tmp/...)              /depends    (in-progress build output)
-  ARTIFACTS_DIR (default /local/...)            -- never mounted; host-only latest/, versions/ --
+Three bind mounts into the ubi9 container, plus one host-only location the
+container never touches:
 
-Step 1: build run (ubi9 container)
-  project/ --------------->  build-zlib.sh
-                                  |
-                                  v
-                              build-openssl.sh
-                                  |
-                                  v
-                              build-curl.sh  ---> writes into STAGING_DIR (/depends)
-                                                   downloads cached in SOURCES_DIR (/sources)
+| host | container | contents |
+|---|---|---|
+| `project/` (this checkout) | `/project` | build/test scripts + sources |
+| `SOURCES_DIR` (default `/tmp/...`) | `/sources` | downloaded tarballs, cached across runs |
+| `STAGING_DIR` (default `/tmp/...`) | `/depends` | in-progress build output |
+| `ARTIFACTS_DIR` (default `/local/...`) | *(never mounted)* | host-only `latest/`, `versions/` |
 
-  (/build is container-local only, not host-mounted)
-
-Step 2: test-compile run (ubi9 container)
-  project/ --------------->  build-tests.sh  ---> writes into STAGING_DIR (/depends)
-
-Step 3: test + promote (host)
-  STAGING_DIR --test.sh + validate-artifacts.sh-->  OK?
-                                                       |
-                    +----------------------------------+----------------------------------+
-                    | yes                                                                  | no
-                    v                                                                      v
-    archive current latest/ (under its own combo name)                          abort, staging left
-    into versions/, promote staging to become the new latest/                   as-is for inspection
-```
+1. **Build** (ubi9 container) — `build-zlib.sh` -> `build-openssl.sh` ->
+   `build-curl.sh`, writing into `STAGING_DIR` (`/depends`); downloads cached
+   in `SOURCES_DIR` (`/sources`). `/build`, where sources actually get
+   extracted and compiled, is container-local only, never host-mounted.
+2. **Test-compile** (ubi9 container) — `build-tests.sh`, also writing into
+   `STAGING_DIR`.
+3. **Test + promote** (host) — `test.sh` + `validate-artifacts.sh` run
+   against `STAGING_DIR`:
+   - **pass** — archive the current `latest/` (under its own combo name)
+     into `versions/`, then promote staging to become the new `latest/`
+   - **fail** — abort; staging is left as-is for inspection
 
 ## Layout
 
 ```
-Dockerfile          UBI9 + build toolchain (dnf install)
-build.sh             host wrapper: build image, build into STAGING_DIR, validate, promote to ARTIFACTS_DIR/latest
-test.sh              standalone: compile+run project/testing/*.cpp against any target dir (default ARTIFACTS_DIR/latest)
-check-versions.sh    reports latest upstream curl/openssl/zlib releases vs. what's pinned (informational only)
-docs/why-static-linking.md   the investigation that motivated this whole pipeline
-project/             mounted at /project — build/test scripts and sources, no artifacts
-  versions.env         pinned default CURL_VERSION / OPENSSL_VERSION / ZLIB_VERSION
-  build.sh              in-container orchestrator: zlib -> openssl -> curl, writes BUILD_INFO.txt
-  lib/build-{zlib,openssl,curl}.sh, lib/common.sh, lib/build-tests.sh
-  testing/              test program sources (e.g. test_openssl.cpp)
-testing/validate-artifacts.sh   host-side: checks .a/.so files + headers, runs CLI tools + bin/* test binaries
-tools/               standalone Alpine/musl pipeline — static openssl/curl CLI binaries, not part of the UBI9 pipeline
-  build.sh             builds <ARTIFACTS_DIR>/tools/{openssl,curl} from source on alpine:latest
+nashcom-build-artifacts/
+|-- Dockerfile                  UBI9 + build toolchain (dnf install)
+|-- build.sh                    host wrapper: build image, build into STAGING_DIR, validate, promote to ARTIFACTS_DIR/latest
+|-- test.sh                     standalone: compile+run project/testing/*.cpp against any target dir (default ARTIFACTS_DIR/latest)
+|-- check-versions.sh           reports latest upstream curl/openssl/zlib releases vs. what's pinned (informational only)
+|-- docs/
+|   `-- why-static-linking.md   the investigation that motivated this whole pipeline
+|-- project/                    mounted at /project -- build/test scripts and sources, no artifacts
+|   |-- versions.env              pinned default CURL_VERSION / OPENSSL_VERSION / ZLIB_VERSION
+|   |-- build.sh                  in-container orchestrator: zlib -> openssl -> curl, writes BUILD_INFO.txt
+|   |-- lib/                      build-{zlib,openssl,curl}.sh, common.sh, build-tests.sh
+|   `-- testing/                  test program sources (e.g. test_openssl.cpp)
+|-- testing/
+|   `-- validate-artifacts.sh   host-side: checks .a/.so files + headers, runs CLI tools + bin/* test binaries
+`-- tools/                      standalone Alpine/musl pipeline -- static openssl/curl CLI binaries, not part of the UBI9 pipeline
+    `-- build.sh                 builds <ARTIFACTS_DIR>/tools/{openssl,curl} from source on alpine:latest
 ```
 
 Not part of this checkout — see [Quickstart](#quickstart) for the three
 configurable locations:
 
 ```
-<SOURCES_DIR>/                       downloaded tarballs, cached across runs (default /tmp/nashcom-build-artifacts/sources)
-<STAGING_DIR>/                       mounted at /depends during a build — untested output, not yet promoted (default /tmp/nashcom-build-artifacts/staging)
-<ARTIFACTS_DIR>/latest/              the promoted, tested build — always the most recent one that passed
-  bin/, openssl/, curl/, zlib/, BUILD_INFO.txt, build.log, test.log
-<ARTIFACTS_DIR>/versions/            archive of every build that used to be latest/, keyed by version combo
-  curl-8.21.0_openssl-4.0.1_zlib-1.3.2/   same layout as latest/
-<ARTIFACTS_DIR>/tools/               tools/build.sh's output: static-pie linked, stripped openssl and curl binaries
+<SOURCES_DIR>/                downloaded tarballs, cached across runs (default /tmp/nashcom-build-artifacts/sources)
+<STAGING_DIR>/                mounted at /depends during a build -- untested output, not yet promoted (default /tmp/nashcom-build-artifacts/staging)
+<ARTIFACTS_DIR>/               (default /local/nashcom-build-artifacts)
+|-- latest/                    the promoted, tested build -- always the most recent one that passed
+|   `-- bin/, openssl/, curl/, zlib/, BUILD_INFO.txt, build.log, test.log
+|-- versions/                  archive of every build that used to be latest/, keyed by version combo
+|   `-- curl-8.21.0_openssl-4.0.1_zlib-1.3.2/   same layout as latest/
+`-- tools/                     tools/build.sh's output: static-pie linked, stripped openssl and curl binaries
 ```
 
 ## Testing
