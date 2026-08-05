@@ -32,34 +32,34 @@ version combo that used to be `latest/`.
 
 ## How it works
 
-```mermaid
-flowchart LR
-    subgraph host [host: nashcom-build-artifacts/]
-        proj[project/]
-        stg[staging/]
-        cur[latest/]
-        ver[versions/curl-X_openssl-Y_zlib-Z/]
-    end
+```
+host: nashcom-build-artifacts/
+  project/    staging/    latest/    versions/curl-X_openssl-Y_zlib-Z/
 
-    subgraph c1 [ubi9 container: build run]
-        zlib[build-zlib.sh] --> openssl[build-openssl.sh] --> curl[build-curl.sh]
-        note1[/build — container-local only, not host-mounted/]
-    end
+Step 1: build run (ubi9 container)
+  -v ./project:/project        -v ./staging:/depends
+  project/ --------------->  build-zlib.sh
+                                  |
+                                  v
+                              build-openssl.sh
+                                  |
+                                  v
+                              build-curl.sh  ---> writes into staging/ (/depends)
 
-    subgraph c2 [ubi9 container: test-compile run]
-        tests[build-tests.sh]
-    end
+  (/build is container-local only, not host-mounted)
 
-    proj -- "-v ./project:/project" --> zlib
-    zlib -- "-v ./staging:/depends" --> stg
-    proj -- "-v ./project:/project" --> tests
-    stg -- "-v ./staging:/depends" --> tests
-    tests --> stg
+Step 2: test-compile run (ubi9 container)
+  -v ./project:/project        -v ./staging:/depends
+  project/ --------------->  build-tests.sh  ---> writes into staging/ (/depends)
 
-    stg -- "test.sh + validate-artifacts.sh" --> gate{OK?}
-    gate -- "yes: archive old latest/, promote staging/" --> cur
-    cur -- "archived under its own combo name" --> ver
-    gate -- "no: abort, staging/ left for inspection" --> stg
+Step 3: test + promote (host)
+  staging/ --test.sh + validate-artifacts.sh-->  OK?
+                                                    |
+                    +-------------------------------+-------------------------------+
+                    | yes                                                           | no
+                    v                                                               v
+    archive current latest/ (under its own combo name)                  abort, staging/ left
+    into versions/, promote staging/ to become the new latest/          as-is for inspection
 ```
 
 ## Layout
