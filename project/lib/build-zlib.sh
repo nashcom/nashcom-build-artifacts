@@ -19,8 +19,16 @@ cd "/build/zlib-${ZLIB_VERSION}"
 log "Configuring zlib ${ZLIB_VERSION}"
 ./configure --prefix=/depends/zlib
 
+# Use up to 4 CPU cores for make
+if [[ -z "${MAKEFLAGS:-}" ]]; then
+  BUILD_JOBS=$(nproc 2>/dev/null || echo 1)
+  (( BUILD_JOBS > 4 )) && BUILD_JOBS=4
+  export MAKEFLAGS="-j${BUILD_JOBS}"
+  log "Parallel Build Jobs: ${BUILD_JOBS}"
+fi
+
 log "Building zlib ${ZLIB_VERSION}"
-make -j"$(nproc)"
+make
 
 log "Installing zlib ${ZLIB_VERSION}"
 make install

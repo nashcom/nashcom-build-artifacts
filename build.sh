@@ -82,6 +82,8 @@ cd "$(dirname "${BASH_SOURCE[0]}")"
 # builds default to OCI format, which has led to a much shorter build-cache
 # validity window in practice.
 export BUILDAH_FORMAT=docker
+# Use the longer output format
+export BUILDKIT_PROGRESS=plain
 
 IMAGE="nashcom-build-artifacts:latest"
 CONTAINER_NAME="nashcom-build-artifacts"

@@ -26,8 +26,16 @@ cd "/build/openssl-${OPENSSL_VERSION}"
 log "Configuring openssl ${OPENSSL_VERSION}"
 ./Configure linux-x86_64 --prefix=/depends/openssl --openssldir=/depends/openssl/ssl no-tests
 
+# Use up to 4 CPU cores for make
+if [[ -z "${MAKEFLAGS:-}" ]]; then
+  BUILD_JOBS=$(nproc 2>/dev/null || echo 1)
+  (( BUILD_JOBS > 4 )) && BUILD_JOBS=4
+  export MAKEFLAGS="-j${BUILD_JOBS}"
+  log "Parallel Build Jobs: ${BUILD_JOBS}"
+fi
+
 log "Building openssl ${OPENSSL_VERSION}"
-make -j"$(nproc)"
+make
 
 log "Installing openssl ${OPENSSL_VERSION}"
 make install

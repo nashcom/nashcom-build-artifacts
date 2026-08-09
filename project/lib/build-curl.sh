@@ -53,8 +53,16 @@ log "Configuring curl ${CURL_VERSION}"
   --disable-tftp \
   --disable-ftp
 
+# Use up to 4 CPU cores for make
+if [[ -z "${MAKEFLAGS:-}" ]]; then
+  BUILD_JOBS=$(nproc 2>/dev/null || echo 1)
+  (( BUILD_JOBS > 4 )) && BUILD_JOBS=4
+  export MAKEFLAGS="-j${BUILD_JOBS}"
+  log "Parallel Build Jobs: ${BUILD_JOBS}"
+fi
+
 log "Building curl ${CURL_VERSION}"
-make -j"$(nproc)"
+make
 
 log "Installing curl ${CURL_VERSION}"
 make install
