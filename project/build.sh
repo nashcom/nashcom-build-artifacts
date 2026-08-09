@@ -21,6 +21,9 @@ bash /project/lib/build-openssl.sh
 header "Building curl ${CURL_VERSION}"
 bash /project/lib/build-curl.sh
 
+header "Building RapidJSON"
+bash /project/lib/build_rapid_json.sh
+
 cat > /depends/BUILD_INFO.txt <<EOF
 CURL_VERSION="${CURL_VERSION}"
 OPENSSL_VERSION="${OPENSSL_VERSION}"
